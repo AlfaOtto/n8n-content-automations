@@ -1,0 +1,533 @@
+{
+  "name": "YouTube Long Videos",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Status",
+              "lookupValue": "pending"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "id": "get-row",
+      "name": "Get row(s) in sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENROUTER_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"anthropic/claude-sonnet-4.6\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert AI image prompt writer for pet videos. Generate ultra-realistic, detailed image prompts.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Generate a detailed image prompt for this pet: {{ $('Get row(s) in sheet').item.json.objects }}. The image must show the full pet in a natural environment, ultra-realistic, 9:16 vertical format, cinematic lighting, shallow depth of field. Return ONLY the prompt, nothing else.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "image-prompt",
+      "name": "Image Prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.kie.ai/api/v1/jobs/createTask",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_KIE_AI_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"nano-banana-pro\",\n  \"callBackUrl\": \"\",\n  \"input\": {\n    \"prompt\": \"{{ $('Image Prompt').item.json.choices[0].message.content }}\",\n    \"aspect_ratio\": \"9:16\",\n    \"resolution\": \"1K\",\n    \"output_format\": \"png\"\n  }\n}",
+        "options": {}
+      },
+      "id": "generate-image",
+      "name": "Generate Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-image",
+      "name": "Wait Image",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.kie.ai/api/v1/jobs/recordInfo?taskId={{ $('Generate Image').item.json.data.taskId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_KIE_AI_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-image-url",
+      "name": "Get Image URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENROUTER_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"anthropic/claude-sonnet-4.6\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert AI video prompt writer for pet videos. Generate cinematic, realistic video prompts that show a continuous scene progression.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Generate 20 sequential video prompts for a 5-minute YouTube video about this pet: {{ $('Get row(s) in sheet').item.json.objects }}. Each prompt must:\\n1. Be 5 seconds long\\n2. Continue naturally from the previous scene\\n3. Keep the SAME pet, SAME environment throughout\\n4. Show natural pet behavior and movements\\n5. Be ultra-realistic, cinematic\\n\\nReturn ONLY a JSON array of 20 strings, no other text. Example format: [\\\"prompt1\\\", \\\"prompt2\\\", ...]\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "video-prompts",
+      "name": "Generate 20 Video Prompts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $('Generate 20 Video Prompts').item.json.choices[0].message.content;\nconst clean = content.replace(/```json|```/g, '').trim();\nconst prompts = JSON.parse(clean);\n\nreturn prompts.map((prompt, index) => ({\n  json: {\n    prompt,\n    index,\n    total: prompts.length,\n    pet: $('Get row(s) in sheet').item.json.objects,\n    imageUrl: $('Get Image URL').item.json.data.output.imageUrl\n  }\n}));"
+      },
+      "id": "parse-prompts",
+      "name": "Parse Prompts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.piapi.ai/api/kling/v1/video",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_PIAPI_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"kling-v2-6\",\n  \"task_type\": \"video_generation\",\n  \"input\": {\n    \"prompt\": \"{{ $json.prompt }}\",\n    \"image_url\": \"{{ $json.imageUrl }}\",\n    \"duration\": 5,\n    \"aspect_ratio\": \"9:16\",\n    \"mode\": \"std\"\n  }\n}",
+        "options": {}
+      },
+      "id": "generate-clip",
+      "name": "Generate Video Clip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "wait-clip",
+      "name": "Wait Clip",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.piapi.ai/api/kling/v1/video/{{ $('Generate Video Clip').item.json.data.task_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_PIAPI_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-clip-url",
+      "name": "Get Clip URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Clips"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "clip_index": "={{ $('Parse Prompts').item.json.index }}",
+            "clip_url": "={{ $('Get Clip URL').item.json.data.output.video_url }}",
+            "pet": "={{ $('Get row(s) in sheet').item.json.objects }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "save-clip",
+      "name": "Save Clip URL",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENROUTER_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"anthropic/claude-sonnet-4.6\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a YouTube SEO expert specializing in pet content for the US market.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Write an optimized YouTube video title and description for a 5-minute video about: {{ $('Get row(s) in sheet').item.json.objects }}.\\n\\nRules:\\n- Title: max 70 characters, engaging, US audience\\n- Description: 300 words, SEO optimized, include 10 hashtags\\n- Return ONLY JSON format: {\\\"title\\\": \\\"...\\\", \\\"description\\\": \\\"...\\\"}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "youtube-caption",
+      "name": "YouTube Caption",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $('YouTube Caption').item.json.choices[0].message.content;\nconst clean = content.replace(/```json|```/g, '').trim();\nconst caption = JSON.parse(clean);\n\nreturn [{\n  json: {\n    title: caption.title,\n    description: caption.description,\n    pet: $('Get row(s) in sheet').item.json.objects\n  }\n}];"
+      },
+      "id": "parse-caption",
+      "name": "Parse Caption",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Status": "clips_ready",
+            "YouTube_Title": "={{ $('Parse Caption').item.json.title }}",
+            "YouTube_Description": "={{ $('Parse Caption').item.json.description }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "update-sheet",
+      "name": "Update Sheet Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3080,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Image Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image Prompt": {
+      "main": [
+        [
+          {
+            "node": "Generate Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image": {
+      "main": [
+        [
+          {
+            "node": "Wait Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Image": {
+      "main": [
+        [
+          {
+            "node": "Get Image URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Image URL": {
+      "main": [
+        [
+          {
+            "node": "Generate 20 Video Prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate 20 Video Prompts": {
+      "main": [
+        [
+          {
+            "node": "Parse Prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Prompts": {
+      "main": [
+        [
+          {
+            "node": "Generate Video Clip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Video Clip": {
+      "main": [
+        [
+          {
+            "node": "Wait Clip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Clip": {
+      "main": [
+        [
+          {
+            "node": "Get Clip URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Clip URL": {
+      "main": [
+        [
+          {
+            "node": "Save Clip URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Clip URL": {
+      "main": [
+        [
+          {
+            "node": "YouTube Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube Caption": {
+      "main": [
+        [
+          {
+            "node": "Parse Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Caption": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {},
+  "active": false
+}

@@ -1,0 +1,544 @@
+{
+  "name": "YouTube Compilation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "weeksInterval": 1,
+              "triggerAtDay": [
+                0
+              ],
+              "triggerAtHour": 14,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Published Shorts"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "used_in_compilation",
+              "lookupValue": "FALSE"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "get-clips",
+      "name": "Get Unused Clips",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const clips = $input.all().slice(0, 40);\n\nif (clips.length < 10) {\n  throw new Error('Not enough clips: ' + clips.length + ' available. Need at least 10.');\n}\n\nconst urls = clips.map(c => c.json.clip_url);\nconst objects = clips.map(c => c.json.objects);\nconst uniqueObjects = [...new Set(objects)];\n\nreturn [{\n  json: {\n    urls,\n    objects,\n    uniqueObjects,\n    count: urls.length,\n    rowNumbers: clips.map(c => c.json.row_number)\n  }\n}];"
+      },
+      "id": "prepare-clips",
+      "name": "Prepare Clips",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENROUTER_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"anthropic/claude-sonnet-4.6\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a viral YouTube content creator specializing in pet grooming content for the US market. You write engaging, emotional narration scripts that keep viewers watching until the end. Your scripts are conversational, warm, and satisfying to watch.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Create a complete YouTube video package for a {{ $json.count }}-clip pet grooming transformation compilation. The clips feature these pets: {{ $json.uniqueObjects.join(', ') }}.\\n\\nReturn ONLY a JSON object with these exact fields:\\n{\\n  \\\"title\\\": \\\"YouTube title (max 70 chars, emotional, US audience, includes year 2026)\\\",\\n  \\\"description\\\": \\\"Full YouTube description (400 words, SEO optimized, timestamps, call to action, 15 hashtags)\\\",\\n  \\\"narration_script\\\": \\\"Complete 8-minute narration script in English. Warm, engaging voice. Introduce each pet transformation. Use timestamps like [0:00] [0:45] etc. Make viewers feel the satisfaction of each transformation.\\\",\\n  \\\"tags\\\": [\\\"array\\\", \\\"of\\\", \\\"20\\\", \\\"youtube\\\", \\\"tags\\\"]\\n}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "generate-content",
+      "name": "Generate Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $('Generate Content').item.json.choices[0].message.content;\nconst clean = raw.replace(/```json|```/g, '').trim();\nconst content = JSON.parse(clean);\n\nconst urls = $('Prepare Clips').item.json.urls;\nconst rowNumbers = $('Prepare Clips').item.json.rowNumbers;\n\nreturn [{\n  json: {\n    title: content.title,\n    description: content.description,\n    narration_script: content.narration_script,\n    tags: content.tags,\n    urls,\n    rowNumbers,\n    count: urls.length\n  }\n}];"
+      },
+      "id": "parse-content",
+      "name": "Parse Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "xi-api-key",
+              "value": "YOUR_ELEVENLABS_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"{{ $json.narration_script.substring(0, 5000) }}\",\n  \"model_id\": \"eleven_monolingual_v1\",\n  \"voice_settings\": {\n    \"stability\": 0.5,\n    \"similarity_boost\": 0.75\n  }\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "generate-voice",
+      "name": "Generate Voice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "driveId": {
+          "mode": "list",
+          "value": "MyDrive"
+        },
+        "folderId": {
+          "mode": "list",
+          "value": "root"
+        },
+        "name": "=narration_{{ $now.format('yyyy-MM-dd') }}.mp3",
+        "inputDataFieldName": "data",
+        "options": {}
+      },
+      "id": "upload-voice",
+      "name": "Upload Voice to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build FFmpeg concat list from clip URLs\nconst urls = $('Parse Content').item.json.urls;\nconst title = $('Parse Content').item.json.title;\nconst narrationUrl = $('Upload Voice to Drive').item.json.webContentLink;\n\n// Create file list content for FFmpeg\nconst fileListContent = urls.map(url => `file '${url}'`).join('\\n');\n\nreturn [{\n  json: {\n    fileListContent,\n    narrationUrl,\n    title,\n    description: $('Parse Content').item.json.description,\n    tags: $('Parse Content').item.json.tags,\n    urlCount: urls.length,\n    rowNumbers: $('Parse Content').item.json.rowNumbers\n  }\n}];"
+      },
+      "id": "prepare-ffmpeg",
+      "name": "Prepare FFmpeg",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENROUTER_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"anthropic/claude-sonnet-4.6\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an FFmpeg expert. Generate precise FFmpeg commands to merge video clips and add audio narration.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Generate a complete FFmpeg bash script to:\\n1. Download {{ $json.urlCount }} video clips from these URLs (one per line):\\n{{ $json.fileListContent }}\\n\\n2. Concatenate all clips into one video\\n3. Add this narration audio on top: {{ $json.narrationUrl }}\\n4. Add a fade in/out effect between clips\\n5. Output file: /tmp/compilation_final.mp4\\n6. Settings: 1080p, H264, AAC audio, optimized for YouTube\\n\\nReturn ONLY the bash script, no explanation.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "generate-ffmpeg",
+      "name": "Generate FFmpeg Script",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const script = $('Generate FFmpeg Script').item.json.choices[0].message.content;\nconst cleanScript = script.replace(/```bash|```sh|```/g, '').trim();\n\nreturn [{\n  json: {\n    script: cleanScript,\n    title: $('Prepare FFmpeg').item.json.title,\n    description: $('Prepare FFmpeg').item.json.description,\n    tags: $('Prepare FFmpeg').item.json.tags,\n    rowNumbers: $('Prepare FFmpeg').item.json.rowNumbers\n  }\n}];"
+      },
+      "id": "parse-script",
+      "name": "Parse Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "command": "={{ $json.script }}"
+      },
+      "id": "execute-ffmpeg",
+      "name": "Execute FFmpeg",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "file:///tmp/compilation_final.mp4",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "read-video",
+      "name": "Read Final Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $('Parse Script').item.json.title }}",
+        "regionCode": "US",
+        "categoryId": "15",
+        "options": {
+          "description": "={{ $('Parse Script').item.json.description }}",
+          "privacyStatus": "public",
+          "notifySubscribers": true,
+          "selfDeclaredMadeForKids": false,
+          "tags": "={{ $('Parse Script').item.json.tags.join(',') }}"
+        }
+      },
+      "id": "upload-youtube",
+      "name": "Upload to YouTube",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mark all used clips as used_in_compilation = true\nconst rowNumbers = $('Parse Script').item.json.rowNumbers;\n\nreturn rowNumbers.map(rowNumber => ({\n  json: { row_number: rowNumber }\n}));"
+      },
+      "id": "prepare-update",
+      "name": "Prepare Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Published Shorts"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "used_in_compilation": "TRUE"
+          },
+          "matchingColumns": [
+            "row_number"
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-used",
+      "name": "Mark Clips as Used",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Compilations"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $('Parse Script').item.json.title }}",
+            "youtube_url": "={{ $('Upload to YouTube').item.json.id }}",
+            "clips_count": "={{ $('Prepare Clips').item.json.count }}",
+            "created_date": "={{ $now.toISO() }}",
+            "status": "published"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-compilation",
+      "name": "Log Compilation",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3300,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Unused Clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Unused Clips": {
+      "main": [
+        [
+          {
+            "node": "Prepare Clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Clips": {
+      "main": [
+        [
+          {
+            "node": "Generate Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Content": {
+      "main": [
+        [
+          {
+            "node": "Parse Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Content": {
+      "main": [
+        [
+          {
+            "node": "Generate Voice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Voice": {
+      "main": [
+        [
+          {
+            "node": "Upload Voice to Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Voice to Drive": {
+      "main": [
+        [
+          {
+            "node": "Prepare FFmpeg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare FFmpeg": {
+      "main": [
+        [
+          {
+            "node": "Generate FFmpeg Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate FFmpeg Script": {
+      "main": [
+        [
+          {
+            "node": "Parse Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Script": {
+      "main": [
+        [
+          {
+            "node": "Execute FFmpeg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute FFmpeg": {
+      "main": [
+        [
+          {
+            "node": "Read Final Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Final Video": {
+      "main": [
+        [
+          {
+            "node": "Upload to YouTube",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to YouTube": {
+      "main": [
+        [
+          {
+            "node": "Prepare Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Update": {
+      "main": [
+        [
+          {
+            "node": "Mark Clips as Used",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Clips as Used": {
+      "main": [
+        [
+          {
+            "node": "Log Compilation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "meta": {},
+  "active": false
+}
